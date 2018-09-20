@@ -14,6 +14,9 @@ var testData = []struct {
 	Result string
 }{
 	{Fls{"/entry": `ABC`}, `ABC`},
+	{Fls{"/entry": `{{xxx}}ABC`}, `{{xxx}}ABC`},
+	{Fls{"/entry": `{{- xxx -}} ABC`}, `{{xxx}}ABC`},
+	{Fls{"/entry": `{{ xxx "yyy"}} ABC`}, `{{xxx "yyy"}} ABC`},
 	{Fls{"/entry": `ABC {{include "index2"}}`, "/index2": `DEF`}, `ABC DEF`},
 	{Fls{"/entry": `ABC {{include "a/index2"}}`, "/a/index2": `DEF`}, `ABC DEF`},
 	{Fls{"/entry": `ABC {{- include "a/index2"}}`, "/a/index2": `DEF`}, `ABCDEF`},

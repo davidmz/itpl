@@ -3,6 +3,7 @@ package itpl // import "github.com/davidmz/itpl"
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template/parse"
 
@@ -19,13 +20,12 @@ func Load(fileName string) (string, error) {
 // Loader can load files from non-standard filesystem (it uses github.com/spf13/afero as filesystem
 // abstraction) and/or define list of functions used in templates.
 type Loader struct {
-	fs    afero.Fs
-	funcs map[string]interface{}
+	fs afero.Fs
 }
 
 // NewLoader creates a new Loader based on OS filesystem.
 func NewLoader() *Loader {
-	return new(Loader).Fs(afero.NewOsFs()).Funcs(nil)
+	return new(Loader).Fs(afero.NewOsFs())
 }
 
 // Fs allow to change filesystem of Loader. It may be useful in tests with in-memory filesystem.
@@ -34,17 +34,9 @@ func (ld *Loader) Fs(fs afero.Fs) *Loader {
 	return ld
 }
 
-// Funcs provides functions used in templates. Go cannot parse templates that
-// use functions without this. Only function names are matters, the functions
-// itself are not executed at parse time.
-func (ld *Loader) Funcs(funcs map[string]interface{}) *Loader {
-	ld.funcs = make(map[string]interface{})
-	for fn := range funcs {
-		ld.funcs[fn] = func() {}
-	}
-	ld.funcs["include"] = func() {}
-	return ld
-}
+// funcRe matches action names (or function names). It can be greedy
+// and can match any function-like names, it is ok.
+var funcRe = regexp.MustCompile(`{{(?:- )?\s*(\p{L}[\p{L}\p{Nd}]*)`)
 
 // Load loads template and process the include actions. It returns
 // processed template as a string or error if something went wrong.
@@ -55,9 +47,19 @@ func (ld *Loader) Load(fileName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	body := string(bodyBytes)
+
+	funcMatches := funcRe.FindAllStringSubmatch(body, -1)
+	funcs := map[string]interface{}{}
+	for _, m := range funcMatches {
+		name := m[1]
+		if _, ok := funcs[name]; !ok {
+			funcs[name] = func() {}
+		}
+	}
 
 	const rootName = ""
-	tree, err := parse.Parse(rootName, string(bodyBytes), "", "", ld.funcs)
+	tree, err := parse.Parse(rootName, body, "", "", funcs)
 	if err != nil {
 		return "", err
 	}
