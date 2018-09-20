@@ -18,7 +18,7 @@ func Load(fileName string) (string, error) {
 
 // Loader allows to load and process templates with more options that the bare Load function.
 // Loader can load files from non-standard filesystem (it uses github.com/spf13/afero as filesystem
-// abstraction) and/or define list of functions used in templates.
+// abstraction).
 type Loader struct {
 	fs afero.Fs
 }
