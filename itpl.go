@@ -20,12 +20,16 @@ func Load(fileName string) (string, error) {
 // Loader can load files from non-standard filesystem (it uses github.com/spf13/afero as filesystem
 // abstraction).
 type Loader struct {
-	fs afero.Fs
+	fs           afero.Fs
+	nowProcessed map[string]bool
 }
 
 // NewLoader creates a new Loader based on OS filesystem.
 func NewLoader() *Loader {
-	return new(Loader).Fs(afero.NewOsFs())
+	return &Loader{
+		fs:           afero.NewOsFs(),
+		nowProcessed: make(map[string]bool),
+	}
 }
 
 // Fs allow to change filesystem of Loader. It may be useful in tests with in-memory filesystem.
@@ -42,6 +46,11 @@ var funcRe = regexp.MustCompile(`{{(?:- )?\s*(\p{L}[\p{L}\p{Nd}]*)`)
 // processed template as a string or error if something went wrong.
 func (ld *Loader) Load(fileName string) (string, error) {
 	fileName = filepath.Clean(fileName)
+	if ld.nowProcessed[fileName] {
+		return "", fmt.Errorf("circular import detected: %q is already processed", fileName)
+	}
+	ld.nowProcessed[fileName] = true
+	defer func() { delete(ld.nowProcessed, fileName) }()
 
 	bodyBytes, err := afero.ReadFile(ld.fs, fileName)
 	if err != nil {
