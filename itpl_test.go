@@ -21,7 +21,9 @@ var testData = []struct {
 	{Fls{"/entry": `ABC {{include "a/index2"}}`, "/a/index2": `DEF`}, `ABC DEF`},
 	{Fls{"/entry": `ABC {{- include "a/index2"}}`, "/a/index2": `DEF`}, `ABCDEF`},
 	{Fls{"/entry": `ABC{{include "index3"}} {{include "index2"}}`, "/index2": `DEF{{include "index3"}}`, "/index3": `!`}, `ABC! DEF!`},
-	{Fls{"/entry": `{{block "A" .}}ABC{{end}}`}, `{{template "A" .}}{{define "A"}}ABC{{end}}`},
+	{Fls{"/entry": `{{block "A" .}}ABC{{end}}`}, `{{define "A"}}ABC{{end}}{{template "A" .}}`},
+	{Fls{"/entry": `{{xxx|len}}ABC{{yyy|zzz}}`}, `{{xxx | len}}ABC{{yyy | zzz}}`},
+	{Fls{"/entry": `{{if .x}}{{include "./inc"}}{{end}}`, "/inc": `Hi!`}, `{{if .x}}Hi!{{end}}`},
 }
 
 func TestTable(t *testing.T) {

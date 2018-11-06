@@ -38,10 +38,6 @@ func (ld *Loader) Fs(fs afero.Fs) *Loader {
 	return ld
 }
 
-// funcRe matches action names (or function names). It can be greedy
-// and can match any function-like names, it is ok.
-var funcRe = regexp.MustCompile(`{{(?:- )?\s*(\p{L}[\p{L}\p{Nd}]*)`)
-
 // Load loads template and process the include actions. It returns
 // processed template as a string or error if something went wrong.
 func (ld *Loader) Load(fileName string) (string, error) {
@@ -58,65 +54,123 @@ func (ld *Loader) Load(fileName string) (string, error) {
 	}
 	body := string(bodyBytes)
 
-	funcMatches := funcRe.FindAllStringSubmatch(body, -1)
 	funcs := map[string]interface{}{}
-	for _, m := range funcMatches {
-		name := m[1]
-		if _, ok := funcs[name]; !ok {
-			funcs[name] = func() {}
-		}
-	}
 
 	const rootName = ""
-	tree, err := parse.Parse(rootName, body, "", "", funcs)
-	if err != nil {
-		return "", err
+	var tree map[string]*parse.Tree
+	const maxFuncs = 100
+	i := 0
+	for {
+		i++
+		var err error
+		tree, err = parse.Parse(rootName, body, "", "", builtinFuncs, funcs)
+		if err == nil {
+			break
+		} else if found := funcErrRe.FindStringSubmatch(err.Error()); found != nil && i < maxFuncs {
+			funcs[found[1]] = func() {}
+		} else {
+			return "", err
+		}
 	}
 
 	sb := new(strings.Builder)
 
-	str, err := ld.processTree(tree[rootName], fileName)
-	if err != nil {
-		return "", err
-	}
-	sb.WriteString(str)
 	for name, tr := range tree {
-		if name == rootName {
-			continue
-		}
-		str, err := ld.processTree(tr, fileName)
-		if err != nil {
+		if err := ld.processLists(fileName, tr.Root); err != nil {
 			return "", err
 		}
-		fmt.Fprintf(sb, "{{define %q}}%s{{end}}", name, str)
+		if name != rootName {
+			fmt.Fprintf(sb, "{{define %q}}", name)
+		}
+		for _, node := range tr.Root.Nodes {
+			sb.WriteString(node.String())
+		}
+		if name != rootName {
+			fmt.Fprint(sb, "{{end}}")
+		}
 	}
 
 	return sb.String(), nil
 }
 
-func (ld *Loader) processTree(tr *parse.Tree, fileName string) (string, error) {
-	sb := new(strings.Builder)
-	for _, n := range tr.Root.Nodes {
-		if n.Type() == parse.NodeAction {
-			a := n.(*parse.ActionNode)
-			if len(a.Pipe.Cmds) == 1 {
-				args := a.Pipe.Cmds[0].Args
-				if len(args) >= 2 && args[0].Type() == parse.NodeIdentifier && args[1].Type() == parse.NodeString {
+func (ld *Loader) processLists(fileName string, lists ...*parse.ListNode) error {
+	for _, list := range lists {
+		if list == nil {
+			continue
+		}
+
+		for idx, node := range list.Nodes {
+			switch node := node.(type) {
+			case *parse.ActionNode:
+				args := node.Pipe.Cmds[0].Args
+				if len(args) >= 2 &&
+					args[0].Type() == parse.NodeIdentifier &&
+					args[1].Type() == parse.NodeString {
 					ident := args[0].(*parse.IdentifierNode)
 					if ident.Ident == "include" {
 						str := args[1].(*parse.StringNode)
 						incFileName := filepath.Join(filepath.Dir(fileName), str.Text)
 						incString, err := ld.Load(incFileName)
 						if err != nil {
-							return "", err
+							return err
 						}
-						sb.WriteString(incString)
+						list.Nodes[idx] = newRawNode(node, incString)
 						continue
 					}
 				}
+			case *parse.IfNode:
+				if err := ld.processLists(fileName, node.List, node.ElseList); err != nil {
+					return err
+				}
+			case *parse.RangeNode:
+				if err := ld.processLists(fileName, node.List, node.ElseList); err != nil {
+					return err
+				}
+			case *parse.WithNode:
+				if err := ld.processLists(fileName, node.List, node.ElseList); err != nil {
+					return err
+				}
 			}
 		}
-		sb.WriteString(n.String())
 	}
-	return sb.String(), nil
+	return nil
 }
+
+type rawNode struct {
+	parse.Node
+	str string
+}
+
+func newRawNode(node parse.Node, str string) parse.Node {
+	return &rawNode{
+		Node: node.Copy(),
+		str:  str,
+	}
+}
+
+func (r *rawNode) String() string { return r.str }
+
+var builtinFuncs = map[string]interface{}{
+	"and":      func() {},
+	"call":     func() {},
+	"html":     func() {},
+	"index":    func() {},
+	"js":       func() {},
+	"len":      func() {},
+	"not":      func() {},
+	"or":       func() {},
+	"print":    func() {},
+	"printf":   func() {},
+	"println":  func() {},
+	"urlquery": func() {},
+
+	// Comparisons
+	"eq": func() {},
+	"ge": func() {},
+	"gt": func() {},
+	"le": func() {},
+	"lt": func() {},
+	"ne": func() {},
+}
+
+var funcErrRe = regexp.MustCompile(`: function "(.+?)" not defined$`)

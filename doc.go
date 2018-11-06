@@ -14,7 +14,7 @@ This package introduce an 'include' action that works like that:
 	Footer
 
 itpl.Load("page.tpl") will load "page.tpl" file, include content of "header.tpl" and "footer.tpl" files
-at the places of 'include' actions and produce the following template code:
+at the places of 'include' actions and return the following template code:
 	Header
 	Content
 	Footer
